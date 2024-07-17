@@ -54,5 +54,8 @@ dkms.conf
 *.list
 *#
 *.smc
+*.sfc
 *.mmap
 *.oops
+
+build/

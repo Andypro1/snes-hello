@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cl65 -C smc.cfg -o hello.smc -l hello.list -m hello.mmap hello.asm
+cl65 -C smc.cfg -o ./build/hello.smc -l ./build/hello.list -m ./build/hello.mmap hello.asm
