@@ -59,3 +59,6 @@ dkms.conf
 *.oops
 
 build/
+
+# Allow asar.exe for assembly
+!asar.exe
