@@ -1,7 +1,7 @@
 @echo off
 
 pushd .\resources
-del ..\build\test.sfc
+del ..\build\z1-dpcm.sfc
 
-asar.exe -v --symbols=wla --symbols-path=..\build\test.sym ..\test.asm ..\build\test.sfc
+asar.exe -v --symbols=wla --symbols-path=..\build\z1-dpcm.sym ..\main.asm ..\build\z1-dpcm.sfc
 popd
