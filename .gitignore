@@ -62,3 +62,6 @@ build/
 
 # Allow asar.exe for assembly
 !asar.exe
+
+# Remove unconverted sound samples
+sound/samples/*.wav

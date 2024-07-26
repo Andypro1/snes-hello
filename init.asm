@@ -1,3 +1,8 @@
+jmp start
+
+incsrc "sound/macros.asm"
+incsrc "sound/dsp-send.asm"
+
 !VRAM_CHARSET   = $0000 ; must be at $1000 boundary
 !VRAM_BG1       = $1000 ; must be at $0400 boundary
 !VRAM_BG2       = $1400 ; must be at $0400 boundary
@@ -19,9 +24,8 @@
 !LEFT_BUTTON     = $0200
 !RIGHT_BUTTON    = $0100
 
-
-
 start:
+memoryAllocation:
    ;----- Memory Map WRAM
    ;TODO: make a memory map wram init to 0 loop
    !keylast = $0302           
@@ -35,7 +39,32 @@ start:
    STZ $0307            ; data read from joypad 1
    !menuitem = $0308    ; Byte which holds the currently selected menu item (0 to 4)
    stz $0308
+   !menuitem = $0308    ; Byte which holds the currently selected menu item (0 to 4)
+   stz $0308
 
+   ;  Variables used in convert-dcm-to-brr.asm
+   ;  Please move this initialization somewhere sensible
+   !dmc_running_value = $0309
+   stz $0309
+   !brr_first_last = $030a
+   stz $030a
+   !dmc_sample_length = $030b ; 16-bit length value
+   stz $030b
+   stz $030c
+   !brr_new_sample_pointer = $030d  ; 16-bit spc-700 address value
+   stz $030d
+   stz $030e
+   !brr_cur_shift = $030f
+   stz $030f
+   stz $0310
+   !brr_cur_upload_index = $0311
+   stz $0311
+   stz $0312
+   !brr_cur_scaled_value = $0313
+   stz $0313
+   stz $0314
+
+snesboot:
    clc             ; native mode
    xce
    rep #$10        ; X/Y 16-bit
@@ -50,6 +79,99 @@ start:
    ; set the stack pointer to $1fff
    ldx #$1fff              ; load X with $1fff
    txs                     ; copy X to stack pointer
+
+copy_dmcs_to_ram:
+   ;  TODO: make macro or function.
+   ;  See https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map#LoROM
+   ;  when deciding where to load into ram (or whether it's even worth it)
+   PHB                ; Preserve data bank
+   REP #$30           ; 16-bit AXY
+   LDA #$073f         ; \
+   LDX #$8000         ;  |
+   LDY #$0400         ;  | Move [A] bytes of data from $1f8000 to $004500
+   MVN $00, $1f       ; /
+   SEP #$30           ; 8-bit AXY
+   PLB                ; Recover data bank
+
+   rep #$10        ; X/Y 16-bit
+   sep #$20        ; A 8-bit
+
+init_sound:
+reset:
+    jsr spc_wait_boot
+
+    ; Upload sample to SPC at $200
+    ldy #$0200
+    jsr spc_begin_upload
+continueSampleLoad:
+      lda beepSample,y
+    jsr spc_upload_byte
+    cpy #(beepSampleEnd-beepSample)     ; Length of sample data
+    bne continueSampleLoad
+
+init_swordshot:
+   ldx #$0400    ; sword shot sample location
+   ldy #$073f      ; sword shot sample length
+   jsr ConvertDMCtoBRR
+
+playSample:
+    ; Do DSP writes to prep voice 0 for playback
+    ldx #$206C    ;DSPFLAGS
+    jsr write_dsp
+    ldx #$004C    ;KEYON
+    jsr write_dsp
+    ldx #$FF5C    ;KEYOFF
+    jsr write_dsp
+    ldx #$025D    ;SRCOFFSET
+    jsr write_dsp
+    ldx #$7F00    ;VOLLEFT (voice 0)
+    jsr write_dsp
+    ldx #$7F01    ;VOLRIGHT (voice 0)
+    jsr write_dsp
+
+    ldx #$0002    ;PITCHLOW (voice 0)
+    jsr write_dsp
+    ldx #$1003    ;PITCHHIGH (voice 0)
+    jsr write_dsp
+
+   ;  ldx #$0002    ;PITCHLOW (voice 0)
+   ;  jsr write_dsp
+   ;  ldx #$1003    ;PITCHHIGH (voice 0)
+   ;  jsr write_dsp
+
+    ldx #$0004    ;SRCN
+    jsr write_dsp
+
+   ;  ldx #$C305    ;ADSR1
+   ;  jsr write_dsp
+   ;  ldx #$2F06    ;ADSR2
+   ;  jsr write_dsp
+   ;  ldx #$CF07    ;GAIN
+   ;  jsr write_dsp
+
+   ldx #$0005
+   jsr write_dsp
+   ldx #$0006
+   jsr write_dsp
+   ldx #$7f07     ;GAIN
+   jsr write_dsp
+
+    ldx #$005C    ;KEYOFF
+    jsr write_dsp
+    ldx #$003D    ;NOISEON
+    jsr write_dsp
+    ldx #$004D    ;ECHOON
+    jsr write_dsp
+    ldx #$7F0C    ;MAINVOLLEFT
+    jsr write_dsp
+    ldx #$7F1C    ;MAINVOLRIGHT
+    jsr write_dsp
+    ldx #$002C    ;ECHOVOLLEFT
+    jsr write_dsp
+    ldx #$003C    ;ECHOVOLRIGHT
+    jsr write_dsp
+   ;  ldx #$014C    ;KEYON
+   ;  jsr write_dsp
 
 init_loop:
    stz !INIDISP,x
@@ -201,6 +323,8 @@ CheckUpButton:
 
 MenuUp:
    sep #$20        ; A 8-bit
+   %playsound(0, $14, $28) ; Play amazing menu sound
+
    lda !menuitem
    dec
    bpl DoneMenuUp
@@ -223,6 +347,8 @@ CheckDownButton:
 
 MenuDown:
    sep #$20        ; A 8-bit
+   %playsound(0, $10, $00) ; Play amazing menu sound
+   
    lda !menuitem
    inc
    cmp #$05
@@ -295,8 +421,26 @@ ClearVRAM:
    pla
    RTS
 
+;  Write to DSP subroutine
+incsrc "sound/dsp-write.asm"
+
 charset_asm_here:
 incsrc "charset_test.asm"
+
+org $00a000
+
+; samples:
+beepSample:
+   ;  The following two words are an absolute mystery.  Without these four bytes
+   ;  at the start of the brr sample, nothing plays.  I'm not aware of any documented
+   ;  4-byte header that is supposed to precede the brr sample blocks, nor what they
+   ;  might actually represent
+    dw $0204      ; start
+    dw $0204      ; loop
+incbin "sound/samples/ding.brr"
+beepSampleEnd:
+
+; incsrc "sound/samples/beep.asm"
 
 ; .segment "VECTORS"
 org $00FFE0

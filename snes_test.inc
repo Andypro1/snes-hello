@@ -123,4 +123,33 @@ if not(defined("SNES_INC"))
     !A2AxL       =   $4308   ;   HDMA Mid Frame Table Address Registers (Low)
     !A2AxH       =   $4309   ;   HDMA Mid Frame Table Address Registers (High)
     !NTLRx       =   $430A   ;   HDMA Line Counter Register
+
+    ; SPC Registers
+	!VOLLEFT		=	\$x0	;	Left channel volume.
+	!VOLRIGHT		=	\$x1	;	Right channel volume.
+	!PITCHLOW		=	\$x2	;	Lower 8 bits of pitch.
+	!PITCHHIGH		=	\$x3	;	Higher 8-bits of pitch.
+	!SRCN		=	\$x4	;	Source number (0-255). (references the source directory)
+	!ADSR1		=	\$x5	;	If bit7 is set, ADSR is enabled. If cleared GAIN is used.
+	!ADSR2		=	\$x6	;	These two registers control the ADSR envelope.
+	!GAIN		=	\$x7	;	This register provides function for software envelopes.
+	!ENVX		=	\$x8	;	The DSP writes the current value of the envelope to this register. (read it)
+	!OUTX		=	\$x9	;	The DSP writes the current waveform value after envelope multiplication and before volume multiplication.
+	!MAINVOLLEFT		=	\$0C	;	Main Volume (left output)
+	!MAINVOLRIGHT		=	\$1C	;	Main Volume (right output)
+	!ECHOVOLLEFT		=	\$2C	;	Echo Volume (left output)
+	!ECHOVOLRIGHT		=	\$3C	;	Echo Volume (right output)
+	!KEYON		=	\$4C	;	Key On (1 bit for each voice)
+	!KEYOFF		=	\$5C	;	Key Off (1 bit for each voice)
+	!DSPFLAGS		=	\$6C	;	DSP Flags. (used for MUTE,ECHO,RESET,NOISE CLOCK)
+	!ENDX		=	\$7C	;	1 bit for each voice.
+	!ECHOFEEDBACK	=	\$0D	;	Echo Feedback
+
+	!PITCHMOD		=	\$2D	;	Pitch modulation
+	!NOISEON		=	\$3D	;	Noise enable
+	!ECHOON		=	\$4D	;	Echo enable
+	!SRCOFFSET		=	\$5D	;	Offset of source directory (DIR*100h = memory offset)
+	!ECHOOFFSET		=	\$6D	;	Echo buffer start offset (ESA*100h = memory offset)
+	!ECHODELAY		=	\$7D	;	Echo delay, 4-bits, higher values require more memory.
+	!FIRCOEF		=	\$xF	;	8-tap FIR Filter coefficients
 endif
