@@ -46,7 +46,9 @@ memoryAllocation:
    ;  Please move this initialization somewhere sensible
    !dmc_running_value = $0309
    stz $0309
-   !brr_first_last = $030a
+   !brr_first_last = $030a    ;  TODO: use better boolean name.  0 or 1 
+                              ;  depending on whether we're working on an even sample
+                              ;  nibble (0..14) or an odd one (1..15)
    stz $030a
    !dmc_sample_length = $030b ; 16-bit length value
    stz $030b
@@ -57,12 +59,21 @@ memoryAllocation:
    !brr_cur_shift = $030f
    stz $030f
    stz $0310
-   !brr_cur_upload_index = $0311
+   !dmc_working_value = $0311
    stz $0311
+   !brr_high_nibble = $0312
    stz $0312
-   !brr_cur_scaled_value = $0313
+   !brr_scaled_value = $0313
    stz $0313
+   !brr_isBackBlock = $0314
    stz $0314
+
+   ; !brr_cur_upload_index = $0311
+   ; stz $0311
+   ; stz $0312
+   ; !brr_cur_scaled_value = $0313
+   ; stz $0313
+   ; stz $0314
 
 snesboot:
    clc             ; native mode
@@ -435,8 +446,11 @@ beepSample:
    ;  at the start of the brr sample, nothing plays.  I'm not aware of any documented
    ;  4-byte header that is supposed to precede the brr sample blocks, nor what they
    ;  might actually represent
-    dw $0204      ; start
-    dw $0204      ; loop
+   ;  dw $0204      ; start
+   ;  dw $0204      ; loop
+   ;;;  DEBUG:  test out new sound!
+   dw $2000    ; start of swordshoot brr
+   dw $2000    ;
 incbin "sound/samples/ding.brr"
 beepSampleEnd:
 

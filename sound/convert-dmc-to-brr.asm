@@ -1,10 +1,16 @@
    !dmc_running_value = $0309
-   !brr_first_last = $030a
+   !brr_first_last = $030a    ;  TODO: use better boolean name.  0 or 1 
+                              ;  depending on whether we're working on an even sample
+                              ;  nibble (0..14) or an odd one (1..15)
    !dmc_sample_length = $030b ; 16-bit length value
    !brr_new_sample_pointer = $030d  ;  16-bit spc-700 address for storing the new brr sample
-   !brr_cur_shift = $030f   ;  Current brr block's shift value
+   !brr_cur_shift = $030f   ;  16-bit current brr block's shift value
 ;    !brr_cur_upload_index = $0311    ;  16-bit Y register index required preserved by spc_upload_byte
 ;    !brr_cur_scaled_value = $0313    ;  Working memory for computing the scaled value of the current sample
+   !dmc_working_value = $0311   ;  Area for the current dmc byte being worked on
+   !brr_high_nibble = $0312    ;  Storage for the high sample while we calculate the low sample
+   !brr_scaled_value = $0313    ;  Temporary storage for the scaled value
+   !brr_isBackBlock = $0314    ;  1 if we're on Samples IIII->PPPP of the BRR block, 0 otherwise
 
 ;-------------------------------------------------------------------------------
 ;   Description: Loads NES DMC dpcm audio data of length [Y] from address [X].
@@ -28,6 +34,9 @@ ConvertDMCtoBRR:
     lda #$01
     sta !brr_first_last
 
+    ;  Start with the front of a BRR block
+    stz !brr_isBackBlock
+
 ;     set indexX register to dcm sample start location
     ;  Already done via param [X]
 
@@ -44,9 +53,8 @@ processDcmSample:
 ;     set indexY register to 8
     ldy #$0008
 
-;     if brrFirstLast == 0
-    lda !brr_first_last
-    beq nextDcmBit;     jump to nextDcmBit (skip brr shift calculation)
+    lda !brr_isBackBlock
+    bne nextDcmBit;          ;  skip brr shift calculation (only done before front block)
 
 calcBrrShiftVal:
 ;     Use running sample value to calculate brr shift nibble (lookup table?)
@@ -114,6 +122,13 @@ shift6:
     lda #$06
     sta !brr_cur_shift              ;  Store the current shift value for this brr block
     lda #$60
+
+    ldy.w !dmc_sample_length    ;  TODO: make macro
+    cpy #$0003
+    bcs skipEnd6    ;  If 3 or more bytes left, no BRR end flag
+    adc #$01        ;  Else, add end flag
+skipEnd6:
+
     ldy.w !brr_new_sample_pointer
     jsr spc_upload_byte             ;  Write the brr block header byte to audio ram
     sty.w !brr_new_sample_pointer
@@ -122,6 +137,13 @@ shift7:
     lda #$07
     sta !brr_cur_shift
     lda #$70
+
+    ldy.w !dmc_sample_length    ;  TODO: make macro
+    cpy #$0003
+    bcs skipEnd7    ;  If 3 or more bytes left, no BRR end flag
+    adc #$01        ;  Else, add end flag
+skipEnd7:
+
     ldy.w !brr_new_sample_pointer
     jsr spc_upload_byte
     sty.w !brr_new_sample_pointer
@@ -130,6 +152,13 @@ shift8:
     lda #$08
     sta !brr_cur_shift
     lda #$80
+
+    ldy.w !dmc_sample_length    ;  TODO: make macro
+    cpy #$0003
+    bcs skipEnd8    ;  If 3 or more bytes left, no BRR end flag
+    adc #$01        ;  Else, add end flag
+skipEnd8:
+
     ldy.w !brr_new_sample_pointer
     jsr spc_upload_byte
     sty.w !brr_new_sample_pointer
@@ -139,6 +168,7 @@ doneShifting:
 
     ;  Begin working on the waveform value
     lda $00,x  ;  Fetch current dcm byte
+    sta !dmc_working_value
 
 nextDcmBit:
 ;     then mask lsb.  If 1, new sample == old+2;  If 0, new sample == old-2.
@@ -199,23 +229,42 @@ doneUnshifting:
 
     sep #$20        ; back to A 8-bit
 
+    sta !brr_scaled_value     ;  Preserve new brr value
+
+    ;  Determine whether we have two samples ready to send
+    lda !brr_first_last
+    beq send2Samples        ;  Have two nibbles; ready to send
+    lda !brr_scaled_value   ;  else, move this value to !brr_high_nibble for next loop pass
+    sta !brr_high_nibble
+    bra prepNextLoop
+
+;     Store 2 new brr samples (1 byte) to audio ram
+send2Samples:
     phy     ;  Preserve indexY
 
-;     Store new brr sample.
-    ;  TODO:  Upload should only occur on every other loop iteration.
-    ;  Need another temp storage byte to store the high brr nibble, then when the low nibble
-    ;  is computed, combine into byte and send here.
+    ;  Load in the new two-sample BRR byte into [A]
+    lda !brr_high_nibble
+    asl #$04       ;  Bump the data up to the high nibble
+    clc
+    adc !brr_scaled_value       ;  Add in the low nibble data
+
     ldy.w !brr_new_sample_pointer
     jsr spc_upload_byte
     sty.w !brr_new_sample_pointer
 
     ply     ;  Restore indexY
 
-;     Shift dpcm sample left (working from msb to lsb)
-    ;  TODO: Need to have temp storage for the "working shift" value of the dcm byte.
+    ;  Prepare the next loop iteration
+prepNextLoop:
+    ;     toggle brrFirstLast bit
+    lda !brr_first_last
+    eor #$01        ;  Toggle 0->1 and 1->0
+    sta !brr_first_last
 
-    lda $00,x  ;  Fetch current dcm byte
-    asl
+;     Shift dpcm sample left (working from msb to lsb)
+    lda !dmc_working_value  ;  Fetch current dcm "working shift" byte
+    asl     ;  Shift it MORE
+    sta !dmc_working_value  ;  Save new "working shift"
 
 ;     decrement indexY register
     dey
@@ -223,23 +272,26 @@ doneUnshifting:
 ;     if indexY register > 0
     cpy #$0000
 ;     Loop to nextDcmBit
-    bne nextDcmBit
+    beq prepNextDmcByte     ; TODO: Fix loop length so a brl
+    brl nextDcmBit          ;       is not required here.
 
+prepNextDmcByte:
 ;     increment indexX register   ; next dcm sample byte
     inx
+    
+    rep #$20        ; 16-bit
+    dec !dmc_sample_length  ;  does this require 16-bit mode?
+    beq EndConvertDMCtoBRR  ;  done with this sample; exit subroutine
+    sep #$20        ; 8-bit
 
-;     toggle brrFirstLast bit
-    pha     ;  Preserve dmc data
-    lda !brr_first_last
-    beq add1                ;  Toggle 0 to 1 and store
-    stz !brr_first_last     ;  Else toggle 1 to 0 and store
-    jmp processDcmSample
+    ;     toggle BRR block half
+    lda !brr_isBackBlock
+    eor #$01            ;  Toggle 0->1 and 1->0
+    sta !brr_isBackBlock
 
-add1:
-    inc
-    sta !brr_first_last
     jmp processDcmSample
 ;     loop to processDcmSample
 
 EndConvertDMCtoBRR:
+        sep #$20        ; 8-bit
         rts                     ; return to caller
