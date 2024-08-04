@@ -65,3 +65,8 @@ build/
 
 # Remove unconverted sound samples
 sound/samples/*.wav
+
+# Sound debugging resource outputs
+resources/output-wavs
+*.aup3
+*.aup3-*

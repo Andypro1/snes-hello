@@ -11,6 +11,21 @@
    !brr_high_nibble = $0312    ;  Storage for the high sample while we calculate the low sample
    !brr_scaled_value = $0313    ;  Temporary storage for the scaled value
    !brr_isBackBlock = $0314    ;  1 if we're on Samples IIII->PPPP of the BRR block, 0 otherwise
+   !cdb_SV = $0319          ; The calculated SV value based on the brr shift
+   !cdb_VminusSV = $0320
+   !cdb_Sminus8 = $0321
+
+
+    macro asr(howManyShifts)
+        !a #= 0
+
+        while !a < <howManyShifts>
+            cmp #$8000
+            ror
+        endif
+    endmacro
+
+    incsrc "select-brr-shift.asm"
 
 ;-------------------------------------------------------------------------------
 ;   Description: Loads NES DMC dpcm audio data of length [Y] from address [X].
@@ -27,7 +42,7 @@ ConvertDMCtoBRR:
 ; algorithm for decoding:
 
 ;     start the running sample value at either $00 or $40?,
-    lda #$40        ;  Experiment with the starting value (represents dmc wave zero-crossing)
+    lda #$3f        ;  Experiment with the starting value (represents dmc wave zero-crossing)
     sta !dmc_running_value
 
 ;     start the brrFirstLast bit at 1 (first 8 samples)
@@ -54,10 +69,11 @@ processDcmSample:
     ldy #$0008
 
     lda !brr_isBackBlock
-    bne nextDcmBit;          ;  skip brr shift calculation (only done before front block)
+    bne loadNewDcmByte;          ;  skip brr shift calculation (only done before front block)
 
 calcBrrShiftVal:
 ;     Use running sample value to calculate brr shift nibble (lookup table?)
+
 ;scaled_value= 64×32767   /  127
 ; ≈16409
 ;  answer = S * 1<<15  /  1<<7
@@ -100,72 +116,43 @@ calcBrrShiftVal:
     ;       shift:          8       7       6       7       8
 
     phy     ;  Preserve indexY
+    phx     ;  Preserve indexX
+    ;   Parameters: [A] - 16 bit, next two DMC sample bytes (16 delta samples)
+;               [X] - Current 7-bit waveform value
+;   Variables:  Stack bytes to store maximum and minimum
+;   Returns:    BRR shift value in [A] ($00 to $0a)
+;-------------------------------------------------------------------------------
+    rep #$20    ; A 16-bit
+    lda $00,x  ;  Fetch next two dcm bytes (16 samples)
+    xba         ;  Byte-swappy
+    ldx !dmc_running_value
+    sep #$10 : rep #$10     ;  zero out high byte of [X] by forcing 8-bit then 16-bit mode
+    
+    ;  TODO:  Step-through debug and figure out BA (samples 14&15)
+    ;         80 (new stepped down shift) 67 (suddenly positive?) anomaly.  BA 80 67
+    ;         should never happen for a sine wave.  -5, -6, (new shift), 6, 7
 
-    lda !dmc_running_value
-    cmp #33
-    bcc shift8
-    lda !dmc_running_value
-    cmp #49
-    bcc shift7
-    lda !dmc_running_value
-    cmp #80
-    bcc shift6
-    lda !dmc_running_value
-    cmp #97
-    bcc shift7
-    lda !dmc_running_value
-    cmp #128
-    bcc shift8
+    jsr SelectBRRShift      ;  loads [A] with new shift value
+    sep #$20    ; [A] back to 8-bit
+
+    sta !brr_cur_shift      ;  Store the value for this brr block
 
 ;     Write new brr header byte
-shift6:
-    lda #$06
-    sta !brr_cur_shift              ;  Store the current shift value for this brr block
-    lda #$60
-
     ldy.w !dmc_sample_length    ;  TODO: make macro
     cpy #$0003
-    bcs skipEnd6    ;  If 3 or more bytes left, no BRR end flag
+    bcs skipEndFlag    ;  If 3 or more bytes left, no BRR end flag
     adc #$01        ;  Else, add end flag
-skipEnd6:
+skipEndFlag:
 
     ldy.w !brr_new_sample_pointer
     jsr spc_upload_byte             ;  Write the brr block header byte to audio ram
     sty.w !brr_new_sample_pointer
-    bra doneShifting
-shift7:
-    lda #$07
-    sta !brr_cur_shift
-    lda #$70
+    ;  done with shifting
 
-    ldy.w !dmc_sample_length    ;  TODO: make macro
-    cpy #$0003
-    bcs skipEnd7    ;  If 3 or more bytes left, no BRR end flag
-    adc #$01        ;  Else, add end flag
-skipEnd7:
-
-    ldy.w !brr_new_sample_pointer
-    jsr spc_upload_byte
-    sty.w !brr_new_sample_pointer
-    bra doneShifting
-shift8:
-    lda #$08
-    sta !brr_cur_shift
-    lda #$80
-
-    ldy.w !dmc_sample_length    ;  TODO: make macro
-    cpy #$0003
-    bcs skipEnd8    ;  If 3 or more bytes left, no BRR end flag
-    adc #$01        ;  Else, add end flag
-skipEnd8:
-
-    ldy.w !brr_new_sample_pointer
-    jsr spc_upload_byte
-    sty.w !brr_new_sample_pointer
-
-doneShifting:
+    plx     ;  Restore indexX
     ply     ;  Restore indexY
 
+loadNewDcmByte:
     ;  Begin working on the waveform value
     lda $00,x  ;  Fetch current dcm byte
     sta !dmc_working_value
@@ -184,51 +171,185 @@ add2:
     lda !dmc_running_value
     cmp #$7f
     beq scaleToOutputRange    ;  Skip addition if we are at the upper bound $7f
-    adc #$02
+    adc #$01 ; TESTING 1 #$02
     sta !dmc_running_value
     bra scaleToOutputRange
 sub2:
     lda !dmc_running_value
     cmp #$01
     bcc scaleToOutputRange    ;  Skip subtraction if we are at/below the lower bound $00
-    sbc #$02
+    sbc #$01 ; TESTING 1 #$02
     sta !dmc_running_value
     bra scaleToOutputRange
 
 scaleToOutputRange:
-;     Apply scaling factor to new brr sample.  (7-bit range to 15-bit range; this again depends where the zero-crossing is for dcm)
-    rep #$20        ; A 16-bit
-    and #$00ff      ; Clear upper byte garbage
-
-    asl #$06        ;  sample<<6  ... FIX this hardcode.
-    sec             ;  Set carry flag to avoid off-by-1 issue with the SBC below
-    sbc #$1000      ;  Center range on zero-crossing.  Check for proper 2s complement for values under $40
-    ;sta !brr_cur_scaled_value
-    ;lsr !brr_cur_scaled_value      ;  fix it)
-
     phx             ;  Preserve indexX
+
+    ;  general case shift:
+    ;   floor(-8 + (V - SV)>>(S-8))
+    ;   where V is incoming value
+    ;         SV is "shift starting number"  (s8: 38, s9: 30, sA: 20, sB: 0)
+    ;         S is shift number
+    ;         SV pattern:  %00a9 8000
+    ;                         98
+    ;                         8
+    ;         each shift lower than b shifts a 1 into bit 6, then 5, then 4, etc.
+
+    ;  Calculate SV value
+    lda #$00
     ldx !brr_cur_shift
-    cpx #$0008
-    beq unshift8
-    cpx #$0007
-    beq unshift7
-    cpx #$0006
-    beq unshift6
-    jmp doneUnshifting
+    cpx #$00b0
+    beq doneSVcalc
+    cpx #$00a0
+    beq SVaddA
+    cpx #$0090
+    beq SVadd9
+    cpx #$0080
+    beq SVadd8
+    brk         ;  SOMETHING WENT WRONG
 
-unshift6:
-    lsr : lsr : lsr : lsr : lsr : lsr
-    jmp doneUnshifting
-unshift7:
-    lsr : lsr : lsr : lsr : lsr : lsr : lsr
-    jmp doneUnshifting
-unshift8:
-    lsr : lsr : lsr : lsr : lsr : lsr : lsr : lsr
-doneUnshifting:
-    plx         ;  Restore indexX
+SVadd8:
+    ora #$08
+SVadd9:
+    ora #$10
+SVaddA:
+    ora #$20
+doneSVcalc:
+    sta !cdb_SV     ;  Save calculated SV
 
-    sep #$20        ; back to A 8-bit
+;  (V - SV) part
+    lda !dmc_running_value
+    sec
+    sbc !cdb_SV     ;  UNDERFLOW ERROR HERE(?).  at SPC mem $266e
+                    ;  [dmc_running_value was $36, and $38 was subtracted (shift $80) resulting in [A]=$fe]
+    sta !cdb_VminusSV   ;  Save calculated (V - SV)
 
+;  >>(S-8)
+    lda !brr_cur_shift
+    sec
+    sbc #$80
+    sta !cdb_Sminus8
+
+;  (V - SV)>>(S-8)
+    ;  [X] still has !brr_cur_shift here;
+    ;  use it instead of [A] so we can pre-store [A] with !cdb_VminusSV
+    lda !cdb_VminusSV
+
+    cpx #$00b0
+    beq shift3
+    cpx #$00a0
+    beq shift2
+    cpx #$0090
+    beq shift1
+    cpx #$0080
+    beq doneShifting
+    brk         ;  SOMETHING WENT WRONG
+
+shift3:
+    cmp #$80
+    ror
+shift2:
+    cmp #$80
+    ror
+shift1:
+    cmp #$80
+    ror
+
+doneShifting:
+;  (-8 + (V - SV)>>(S-8))
+    sec
+    sbc #$08
+    sta !brr_scaled_value     ;  Preserve new brr value
+
+;     ldx !brr_cur_shift
+;     cpx #$00b0
+;     beq doshiftB
+;     cpx #$00a0
+;     beq doshiftA
+;     cpx #$0090
+;     beq doshift9
+;     cpx #$0080
+;     beq doshift8
+;     cpx #$0070
+;     beq doshift7
+;     cpx #$0060
+;     beq doshift6
+;     brk         ;  SOMETHING WENT WRONG AGAIN
+;     jmp doneUnshifting
+
+; doshiftB:
+;     asl
+; doshiftA:
+;     asl
+; doshift9:
+;     asl
+; doshift8:
+;     asl
+; doshift7:
+;     asl
+; doshift6:
+;     asl : asl : asl : asl : asl : asl
+
+;     sec             ;  Set carry flag to avoid off-by-1 issue with the SBC below
+;     sbc #$2000      ;  Center range on zero-crossing.
+
+;     ; ldx !brr_cur_shift
+;     cpx #$00b0
+;     beq unshiftB
+;     cpx #$00a0
+;     beq unshiftA
+;     cpx #$0090
+;     beq unshift9
+;     cpx #$0080
+;     beq unshift8
+;     cpx #$0070
+;     beq unshift7
+;     cpx #$0060
+;     beq unshift6
+;     brk         ;  SOMETHING WENT WRONG AGAIN x2
+;     jmp doneUnshifting
+
+; unshiftB:
+;     ; %asr(1)
+;                 cmp #$8000
+;             ror
+; unshiftA:
+;     ; %asr(1)
+;                 cmp #$8000
+;             ror
+; unshift9:
+;     ; %asr(1)
+;                 cmp #$8000
+;             ror
+; unshift8:
+;     ; %asr(1)
+;                 cmp #$8000
+;             ror
+; unshift7:
+;     ; %asr(1)
+;                 cmp #$8000
+;             ror
+; unshift6:
+;     ; %asr(6)
+;                 cmp #$8000
+;             ror
+;                         cmp #$8000
+;             ror
+;                         cmp #$8000
+;             ror
+;                         cmp #$8000
+;             ror
+;                         cmp #$8000
+;             ror
+;                         cmp #$8000
+;             ror
+
+; doneUnshifting:
+    plx             ;  Restore indexX
+    ; sep #$20        ; back to A 8-bit
+
+    and #$0f                  ;  Scale value down to 1 nibble.  Negative values
+                              ;  will have data in the high nibble due to 2s complement
     sta !brr_scaled_value     ;  Preserve new brr value
 
     ;  Determine whether we have two samples ready to send
@@ -241,7 +362,7 @@ doneUnshifting:
 ;     Store 2 new brr samples (1 byte) to audio ram
 send2Samples:
     phy     ;  Preserve indexY
-
+    
     ;  Load in the new two-sample BRR byte into [A]
     lda !brr_high_nibble
     asl #$04       ;  Bump the data up to the high nibble

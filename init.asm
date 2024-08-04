@@ -67,6 +67,18 @@ memoryAllocation:
    stz $0313
    !brr_isBackBlock = $0314
    stz $0314
+   !sbs_minimum = $0315
+   stz $0315
+   stz $0316
+   !sbs_maximum = $0317
+   stz $0317
+   stz $0318
+   !cdb_SV = $0319
+   stz $0319
+   !cdb_VminusSV = $0320
+   stz $0320
+   !cdb_Sminus8 = $0321
+   stz $0321
 
    ; !brr_cur_upload_index = $0311
    ; stz $0311
@@ -97,9 +109,9 @@ copy_dmcs_to_ram:
    ;  when deciding where to load into ram (or whether it's even worth it)
    PHB                ; Preserve data bank
    REP #$30           ; 16-bit AXY
-   LDA #$073f         ; \
-   LDX #$8000         ;  |
-   LDY #$0400         ;  | Move [A] bytes of data from $1f8000 to $004500
+   LDA #$081f ;#$00a0;  #$0400 ;#$00a0 ;#$0750         ; \
+   LDX #$8000; #$8740; #$a000 ;#$8740 ;#$8000         ;  |
+   LDY #$0400         ;  | Move [A] bytes of data from $1f8000 to $000400
    MVN $00, $1f       ; /
    SEP #$30           ; 8-bit AXY
    PLB                ; Recover data bank
@@ -120,9 +132,24 @@ continueSampleLoad:
     cpy #(beepSampleEnd-beepSample)     ; Length of sample data
     bne continueSampleLoad
 
-init_swordshot:
+; init_swordshot:
+;    ldx #$0400    ; sword shot sample location
+;    ldy #$0750      ; sword shot sample length
+;    jsr ConvertDMCtoBRR
+
+; init_linkhurt:
+;    ldx #$0400    ; sword shot sample location
+;    ldy #$00a0      ; sword shot sample length
+;    jsr ConvertDMCtoBRR
+
+; init_doorunlock:
+;    ldx #$0400    ; sword shot sample location
+;    ldy #$0400      ; sword shot sample length
+;    jsr ConvertDMCtoBRR
+
+init_linkhurt:
    ldx #$0400    ; sword shot sample location
-   ldy #$073f      ; sword shot sample length
+   ldy #$081f      ; sword shot sample length
    jsr ConvertDMCtoBRR
 
 playSample:
@@ -358,7 +385,10 @@ CheckDownButton:
 
 MenuDown:
    sep #$20        ; A 8-bit
-   %playsound(0, $10, $00) ; Play amazing menu sound
+   ; %playsound(0, $10, $00) ; Play amazing menu sound
+   %playsound(0, $10, $88) ; Play amazing menu sound
+
+   ;  0.128 * Hz.
    
    lda !menuitem
    inc
@@ -451,7 +481,8 @@ beepSample:
    ;;;  DEBUG:  test out new sound!
    dw $2000    ; start of swordshoot brr
    dw $2000    ;
-incbin "sound/samples/ding.brr"
+; incbin "sound/samples/ding.brr"
+incbin "resources/output-wavs/ref-dmc-sine.brr"
 beepSampleEnd:
 
 ; incsrc "sound/samples/beep.asm"
