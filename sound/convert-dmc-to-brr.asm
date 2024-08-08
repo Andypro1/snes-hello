@@ -14,6 +14,7 @@
    !cdb_SV = $0319          ; The calculated SV value based on the brr shift
    !cdb_VminusSV = $0320
    !cdb_Sminus8 = $0321
+   !brr_start_location = $0322  ;  The initial audio ram write location
 
 
     macro asr(howManyShifts)
@@ -33,6 +34,7 @@
 ;       This routine has no return value (remains $00).
 ;   Parameters: [X] - 16 bit DMC sample start location
 ;               [Y] - 16 bit DMC sample length
+;               [S-top] - 16 bit audio ram write start location
 ;   Variables:  
 ;   Returns:    no value
 ;-------------------------------------------------------------------------------
@@ -42,7 +44,7 @@ ConvertDMCtoBRR:
 ; algorithm for decoding:
 
 ;     start the running sample value at either $00 or $40?,
-    lda #$3f        ;  Experiment with the starting value (represents dmc wave zero-crossing)
+    lda #$40        ;  Experiment with the starting value (represents dmc wave zero-crossing)
     sta !dmc_running_value
 
 ;     start the brrFirstLast bit at 1 (first 8 samples)
@@ -56,8 +58,10 @@ ConvertDMCtoBRR:
     ;  Already done via param [X]
 
 ;     set start write location in audio ram
-    ldy #$2000
-    sty !brr_new_sample_pointer     ; prepping aram location $2000
+    rep #$20 : ply : tya : ply  ;  Grab the stack-top aram parameter
+    sty !brr_start_location         ; saving original aram start location
+    sty !brr_new_sample_pointer     ; prepping aram location
+    pha : sep #$20  ;  Restore stack and reset to 8-bit
 
 ;   initialize audio ram writes
     ldy.w !brr_new_sample_pointer
@@ -128,10 +132,6 @@ calcBrrShiftVal:
     ldx !dmc_running_value
     sep #$10 : rep #$10     ;  zero out high byte of [X] by forcing 8-bit then 16-bit mode
     
-    ;  TODO:  Step-through debug and figure out BA (samples 14&15)
-    ;         80 (new stepped down shift) 67 (suddenly positive?) anomaly.  BA 80 67
-    ;         should never happen for a sine wave.  -5, -6, (new shift), 6, 7
-
     jsr SelectBRRShift      ;  loads [A] with new shift value
     sep #$20    ; [A] back to 8-bit
 
@@ -414,5 +414,10 @@ prepNextDmcByte:
 ;     loop to processDcmSample
 
 EndConvertDMCtoBRR:
-        sep #$20        ; 8-bit
-        rts                     ; return to caller
+;  Set !brr_new_sample_pointer to the next valid brr audio ram start location
+    lda.w !brr_start_location 
+    clc
+    adc !brr_new_sample_pointer
+    sta !brr_new_sample_pointer
+    sep #$20        ; 8-bit
+rts

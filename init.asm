@@ -2,6 +2,7 @@ jmp start
 
 incsrc "sound/macros.asm"
 incsrc "sound/dsp-send.asm"
+; incsrc "sound/sound-play-wait-loop.asm"
 
 !VRAM_CHARSET   = $0000 ; must be at $1000 boundary
 !VRAM_BG1       = $1000 ; must be at $0400 boundary
@@ -18,17 +19,21 @@ incsrc "sound/dsp-send.asm"
 !START_BG4_ADDR = !VRAM_BG4+!tm_addr_offset
 !START_TM2      #= 32+!START_BG1_ADDR
 
-; constants to use as masks
+; constants to use as masks (hi:bystudlr lo:axlriiii)
 !UP_BUTTON       = $0800
 !DOWN_BUTTON     = $0400
 !LEFT_BUTTON     = $0200
 !RIGHT_BUTTON    = $0100
+!A_BUTTON        = $0080
+!B_BUTTON        = $8000
+!X_BUTTON        = $0040
+!Y_BUTTON        = $4000
 
 start:
 memoryAllocation:
    ;----- Memory Map WRAM
    ;TODO: make a memory map wram init to 0 loop
-   !keylast = $0302           
+   !keylast = $0302
    STZ $0302            ; data read from joypad 1
    STZ $0303            ; data read from joypad 1
    !keynew = $0304
@@ -46,7 +51,7 @@ memoryAllocation:
    ;  Please move this initialization somewhere sensible
    !dmc_running_value = $0309
    stz $0309
-   !brr_first_last = $030a    ;  TODO: use better boolean name.  0 or 1 
+   !brr_first_last = $030a    ;  TODO: use better boolean name.  0 or 1
                               ;  depending on whether we're working on an even sample
                               ;  nibble (0..14) or an odd one (1..15)
    stz $030a
@@ -79,6 +84,13 @@ memoryAllocation:
    stz $0320
    !cdb_Sminus8 = $0321
    stz $0321
+   !brr_start_location = $0322
+   stz $0322
+   stz $0323
+   !playback_pitch_high = $0324
+   !playback_pitch_low = $0325
+   stz $0324
+   stz $0325
 
    ; !brr_cur_upload_index = $0311
    ; stz $0311
@@ -98,59 +110,134 @@ snesboot:
 
    jsr ClearVRAM
 
-; setStackPtr:
+setStackPtr:
    ; set the stack pointer to $1fff
    ldx #$1fff              ; load X with $1fff
    txs                     ; copy X to stack pointer
 
-copy_dmcs_to_ram:
-   ;  TODO: make macro or function.
-   ;  See https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map#LoROM
-   ;  when deciding where to load into ram (or whether it's even worth it)
-   PHB                ; Preserve data bank
-   REP #$30           ; 16-bit AXY
-   LDA #$081f ;#$00a0;  #$0400 ;#$00a0 ;#$0750         ; \
-   LDX #$8000; #$8740; #$a000 ;#$8740 ;#$8000         ;  |
-   LDY #$0400         ;  | Move [A] bytes of data from $1f8000 to $000400
-   MVN $00, $1f       ; /
-   SEP #$30           ; 8-bit AXY
-   PLB                ; Recover data bank
-
-   rep #$10        ; X/Y 16-bit
-   sep #$20        ; A 8-bit
+   %copyRomToRam($8000, $0400, $0750)  ;  Load $c000 sword beam dmc
 
 init_sound:
 reset:
     jsr spc_wait_boot
 
-    ; Upload sample to SPC at $200
-    ldy #$0200
-    jsr spc_begin_upload
-continueSampleLoad:
-      lda beepSample,y
-    jsr spc_upload_byte
-    cpy #(beepSampleEnd-beepSample)     ; Length of sample data
-    bne continueSampleLoad
+;  Init aram base start location
+ldy #$2000
+sty !brr_new_sample_pointer
 
-; init_swordshot:
-;    ldx #$0400    ; sword shot sample location
-;    ldy #$0750      ; sword shot sample length
-;    jsr ConvertDMCtoBRR
+init_swordshot:
+   ldy #$0200    ; directory entry for this sample
+   jsr spc_begin_upload
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
 
-; init_linkhurt:
-;    ldx #$0400    ; sword shot sample location
-;    ldy #$00a0      ; sword shot sample length
-;    jsr ConvertDMCtoBRR
+   ldy !brr_new_sample_pointer : phy  ; audio ram write location
+   ldx #$0400    ; sword shot sample location
+   ldy #$0750      ; sword shot sample length
+   jsr ConvertDMCtoBRR
 
-; init_doorunlock:
-;    ldx #$0400    ; sword shot sample location
-;    ldy #$0400      ; sword shot sample length
-;    jsr ConvertDMCtoBRR
+%copyRomToRam($8740, $0400, $00a0)  ;  Load $c740 link hurt dmc
 
 init_linkhurt:
-   ldx #$0400    ; sword shot sample location
-   ldy #$081f      ; sword shot sample length
+   ldy #$0204    ; directory entry for this sample
+   jsr spc_begin_upload
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   
+   ldy !brr_new_sample_pointer : phy  ; audio ram write location
+   ldx #$0400    ; sample location
+   ldy #$00a0      ; sample length
    jsr ConvertDMCtoBRR
+
+%copyRomToRam($8800, $0400, $0b00)  ;  Load $c800 boss 1 dmc
+
+init_boss1:
+   ldy #$0208    ; directory entry for this sample
+   jsr spc_begin_upload
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   
+   ldy !brr_new_sample_pointer : phy  ; audio ram write location
+   ldx #$0400    ; sample location
+   ldy #$0b00      ; sample length
+   jsr ConvertDMCtoBRR
+
+%copyRomToRam($9300, $0400, $0d00)  ;  Load $d300 boss 2 dmc
+
+init_boss2:
+   ldy #$020c    ; directory entry for this sample
+   jsr spc_begin_upload
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   
+   ldy !brr_new_sample_pointer : phy  ; audio ram write location
+   ldx #$0400    ; sample location
+   ldy #$0d00      ; sample length
+   jsr ConvertDMCtoBRR
+
+%copyRomToRam($a000, $0400, $0400)  ;  Load $e000 door unlock dmc
+
+init_doorunlock:
+   ldy #$0210    ; directory entry for this sample
+   jsr spc_begin_upload
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   
+   ldy !brr_new_sample_pointer : phy  ; audio ram write location
+   ldx #$0400    ; sample location
+   ldy #$0400      ; sample length
+   jsr ConvertDMCtoBRR
+
+menuDingLoad:
+    ; Upload menu navigation ding
+   ldy #$0214
+   jsr spc_begin_upload
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer
+   jsr spc_upload_byte
+   lda !brr_new_sample_pointer+1
+   jsr spc_upload_byte
+
+;  TODO: fix
+;    ldy.w !brr_new_sample_pointer : phy  ; audio ram write location
+; continueSampleLoad:
+;    lda beepSample,y
+;    jsr spc_upload_byte
+;    cpy #(beepSampleEnd-beepSample)     ; Length of sample data
+;    bne continueSampleLoad
 
 playSample:
     ; Do DSP writes to prep voice 0 for playback
@@ -172,20 +259,8 @@ playSample:
     ldx #$1003    ;PITCHHIGH (voice 0)
     jsr write_dsp
 
-   ;  ldx #$0002    ;PITCHLOW (voice 0)
-   ;  jsr write_dsp
-   ;  ldx #$1003    ;PITCHHIGH (voice 0)
-   ;  jsr write_dsp
-
     ldx #$0004    ;SRCN
     jsr write_dsp
-
-   ;  ldx #$C305    ;ADSR1
-   ;  jsr write_dsp
-   ;  ldx #$2F06    ;ADSR2
-   ;  jsr write_dsp
-   ;  ldx #$CF07    ;GAIN
-   ;  jsr write_dsp
 
    ldx #$0005
    jsr write_dsp
@@ -208,8 +283,99 @@ playSample:
     jsr write_dsp
     ldx #$003C    ;ECHOVOLRIGHT
     jsr write_dsp
-   ;  ldx #$014C    ;KEYON
-   ;  jsr write_dsp
+
+;  TODO: REMOVE HARDCODED VOICES
+;  Prep voice #2 for playback:
+    ldx #$025D    ;SRCOFFSET
+    jsr write_dsp
+    ldx #$7F10    ;VOLLEFT (voice 1)
+    jsr write_dsp
+    ldx #$7F11    ;VOLRIGHT (voice 1)
+    jsr write_dsp
+
+    ldx #$0012    ;PITCHLOW (voice 1)
+    jsr write_dsp
+    ldx #$1013    ;PITCHHIGH (voice 1)
+    jsr write_dsp
+
+    ldx #$0114    ;SRCN (voice 1)
+    jsr write_dsp
+
+   ldx #$0015
+   jsr write_dsp
+   ldx #$0016
+   jsr write_dsp
+   ldx #$7f17     ;GAIN
+   jsr write_dsp
+
+;  Prep voice #3 for playback:
+    ldx #$025D    ;SRCOFFSET
+    jsr write_dsp
+    ldx #$7F20    ;VOLLEFT (voice 2)
+    jsr write_dsp
+    ldx #$7F21    ;VOLRIGHT (voice 2)
+    jsr write_dsp
+
+    ldx #$0022    ;PITCHLOW (voice 2)
+    jsr write_dsp
+    ldx #$1023    ;PITCHHIGH (voice 2)
+    jsr write_dsp
+
+    ldx #$0224    ;SRCN (voice 2)
+    jsr write_dsp
+
+   ldx #$0025
+   jsr write_dsp
+   ldx #$0026
+   jsr write_dsp
+   ldx #$7f27     ;GAIN
+   jsr write_dsp
+
+;  Prep voice #4 for playback:
+    ldx #$025D    ;SRCOFFSET
+    jsr write_dsp
+    ldx #$7F30    ;VOLLEFT (voice 3)
+    jsr write_dsp
+    ldx #$7F31    ;VOLRIGHT (voice 3)
+    jsr write_dsp
+
+    ldx #$0032    ;PITCHLOW (voice 3)
+    jsr write_dsp
+    ldx #$1033    ;PITCHHIGH (voice 3)
+    jsr write_dsp
+
+    ldx #$0334    ;SRCN (voice 3)
+    jsr write_dsp
+
+   ldx #$0035
+   jsr write_dsp
+   ldx #$0036
+   jsr write_dsp
+   ldx #$7f37     ;GAIN
+   jsr write_dsp
+
+;  Prep voice #5 for playback:
+    ldx #$025D    ;SRCOFFSET
+    jsr write_dsp
+    ldx #$7F40    ;VOLLEFT (voice 4)
+    jsr write_dsp
+    ldx #$7F41    ;VOLRIGHT (voice 4)
+    jsr write_dsp
+
+    ldx #$0042    ;PITCHLOW (voice 4)
+    jsr write_dsp
+    ldx #$1043    ;PITCHHIGH (voice 4)
+    jsr write_dsp
+
+    ldx #$0444    ;SRCN (voice 4)
+    jsr write_dsp
+
+   ldx #$0045
+   jsr write_dsp
+   ldx #$0046
+   jsr write_dsp
+   ldx #$7f47     ;GAIN
+   jsr write_dsp
 
 init_loop:
    stz !INIDISP,x
@@ -338,7 +504,7 @@ read_input:
    lda !HVBJOY
    and #$01
    bne read_input    ; Wait until hvbjoy returns [0] == 0 to safely begin read
-   
+
    ;  Update controller values
    ; 16-bit accumulator
    rep #$20        ; A 16-bit
@@ -351,6 +517,27 @@ read_input:
    sta !keynew  ; buttons newly pressed this frame (0->1)
 
 ;  Input handler ------------------------------------------------
+CheckABXY:
+   lda #$0000
+   ora !keynew
+   and #(!A_BUTTON+!B_BUTTON+!X_BUTTON+!Y_BUTTON)
+
+    beq checkABXYJumpPoint     ; TODO: Fix loop length so a brl
+    bra ActivateSound          ;       is not required here.
+
+checkABXYJumpPoint:
+   brl CheckABXYDone
+
+ActivateSound:
+   sep #$20        ; A 8-bit
+   lda !menuitem
+   %playsoundinvoiceA($10, $92) ; Play selected voice
+DoneActivateSound:
+   ; jsr soundPlayWaitLoop
+   jmp print_menu  ; Redraw menu
+
+CheckABXYDone:
+
 CheckUpButton:
    lda #$0000                          ; set A to zero
    ora !keynew                     ; check whether the up button was pressed this frame...
@@ -361,7 +548,7 @@ CheckUpButton:
 
 MenuUp:
    sep #$20        ; A 8-bit
-   %playsound(0, $14, $28) ; Play amazing menu sound
+   ; %playsound(0, $14, $28) ; Play amazing menu sound
 
    lda !menuitem
    dec
@@ -386,10 +573,12 @@ CheckDownButton:
 MenuDown:
    sep #$20        ; A 8-bit
    ; %playsound(0, $10, $00) ; Play amazing menu sound
-   %playsound(0, $10, $88) ; Play amazing menu sound
+   ; %playsound(0, $10, $92) ; Play amazing menu sound
+   ; %playsound(0, $0c, $6e) ; Play dmc sound at 24,858hz  3182 ($0c6e) (manhandla; gleeok)
+   ; %playsound(0, $0a, $a7) ; Play dmc sound at 21,307hz  2727 ($0aa7) (keydoor unlock)
 
    ;  0.128 * Hz.
-   
+
    lda !menuitem
    inc
    cmp #$05
@@ -468,23 +657,32 @@ incsrc "sound/dsp-write.asm"
 charset_asm_here:
 incsrc "charset_test.asm"
 
+;  Lookup tables linking brr voices to desired pitches
+;  Dummy entries at [0] to accommodate %playsound() macro
+org $009ff0
+pitchHighTable:
+db #$10, #$10, #$10, #$0c, #$0c, #$0a
+pitchLowTable:
+db #$00, #$92, #$92, #$6e, #$6e, #$a7
+
 org $00a000
 
 ; samples:
 beepSample:
-   ;  The following two words are an absolute mystery.  Without these four bytes
-   ;  at the start of the brr sample, nothing plays.  I'm not aware of any documented
-   ;  4-byte header that is supposed to precede the brr sample blocks, nor what they
-   ;  might actually represent
+   ;  These bytes represent the directory of brr samples written
+   ;  to audio ram.  The first word is the start location; the second
+   ;  the loop location (set to same for non-looping samples).
    ;  dw $0204      ; start
    ;  dw $0204      ; loop
    ;;;  DEBUG:  test out new sound!
    dw $2000    ; start of swordshoot brr
    dw $2000    ;
-; incbin "sound/samples/ding.brr"
-incbin "resources/output-wavs/ref-dmc-sine.brr"
+   dw $2750    ; start of linkhurt brr
+   dw $2750
+incbin "sound/samples/ding.brr"
+; incbin "resources/output-wavs/ref-dmc-sine.brr"
 beepSampleEnd:
-
+   nop
 ; incsrc "sound/samples/beep.asm"
 
 ; .segment "VECTORS"
