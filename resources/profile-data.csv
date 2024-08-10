@@ -1,0 +1,25 @@
+6.9s samples load:
+
+Function (Entry Address)        ,Call Count ,Inclusive Time (Cycles) ,Inclusive Time (%) ,Exclusive Time (Cycles) ,Exclusive Time (%) ,Avg. Cycles ,Min. Cycles ,Max. Cycles
+[Reset]                         ,0          ,143497686               ,100.00             ,504632                  ,0.35               ,0           ,n/a         ,n/a
+ConvertDMCtoBRR (PRG: $00008C)  ,5          ,142306994               ,99.17              ,51194470                ,35.68              ,28461398    ,2482194     ,51444404
+nextDmcBitSub (PRG: $000150)    ,73600      ,51223936                ,35.70              ,51223936                ,35.70              ,695         ,668         ,724
+SelectBRRShift (PRG: $000016)   ,4600       ,20885670                ,14.55              ,20885670                ,14.55              ,4540        ,4224        ,4926
+spc_upload_byte (PRG: $0001C1)  ,41534      ,19064476                ,13.29              ,19064476                ,13.29              ,459         ,332         ,632
+ClearVRAM (PRG: $000BD9)        ,1          ,540820                  ,0.38               ,540820                  ,0.38               ,540820      ,540820      ,540820
+write_dsp (PRG: $000C0E)        ,55         ,127536                  ,0.09               ,17110                   ,0.01               ,2318        ,2272        ,2364
+spc_begin_upload (PRG: $0001A6) ,66         ,66376                   ,0.05               ,66376                   ,0.05               ,1005        ,954         ,1162
+spc_wait_boot (PRG: $000194)    ,1          ,196                     ,0.00               ,196                     ,0.00               ,196         ,196         ,196
+
+6.8s samples load:
+
+Function (Entry Address)        ,Call Count ,Inclusive Time (Cycles) ,Inclusive Time (%) ,Exclusive Time (Cycles) ,Exclusive Time (%) ,Avg. Cycles ,Min. Cycles ,Max. Cycles
+[Reset]                         ,0          ,141606094               ,100.00             ,504666                  ,0.36               ,0           ,n/a         ,n/a
+ConvertDMCtoBRR (PRG: $00008C)  ,5          ,140417564               ,99.16              ,48165500                ,34.01              ,28083512    ,2450582     ,50753342
+nextDmcBitSub (PRG: $00014A)    ,73600      ,50194256                ,35.45              ,50194256                ,35.45              ,681         ,660         ,706
+spc_upload_byte (PRG: $0001B5)  ,41532      ,21240692                ,15.00              ,21240692                ,15.00              ,511         ,332         ,632
+SelectBRRShift (PRG: $000016)   ,4600       ,20879230                ,14.74              ,20879230                ,14.74              ,4538        ,4224        ,4926
+ClearVRAM (PRG: $000BCD)        ,1          ,540820                  ,0.38               ,540820                  ,0.38               ,540820      ,540820      ,540820
+write_dsp (PRG: $000C02)        ,54         ,125212                  ,0.09               ,15700                   ,0.01               ,2318        ,2272        ,2364
+spc_begin_upload (PRG: $00019A) ,65         ,65034                   ,0.05               ,65034                   ,0.05               ,1000        ,954         ,1162
+spc_wait_boot (PRG: $000188)    ,1          ,196                     ,0.00               ,196                     ,0.00               ,196         ,196         ,196

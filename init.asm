@@ -49,8 +49,6 @@ memoryAllocation:
 
    ;  Variables used in convert-dcm-to-brr.asm
    ;  Please move this initialization somewhere sensible
-   !dmc_running_value = $0309
-   stz $0309
    !brr_first_last = $030a    ;  TODO: use better boolean name.  0 or 1
                               ;  depending on whether we're working on an even sample
                               ;  nibble (0..14) or an odd one (1..15)
@@ -91,6 +89,9 @@ memoryAllocation:
    !playback_pitch_low = $0325
    stz $0324
    stz $0325
+   !dmc_running_value = $0326
+   stz $0326
+   stz $0327
 
    ; !brr_cur_upload_index = $0311
    ; stz $0311
@@ -104,6 +105,9 @@ snesboot:
    xce
    rep #$10        ; X/Y 16-bit
    sep #$20        ; A 8-bit
+
+jumpTablesInit:
+   %copyEarlyRomToRam(shiftJumpTable, $0000, $0020)  ;  Load shiftJumpTable to 0-page
 
    ; Clear registers
    ldx.w #$33
@@ -127,15 +131,20 @@ sty !brr_new_sample_pointer
 
 init_swordshot:
    ldy #$0200    ; directory entry for this sample
-   jsr spc_begin_upload
+   ; jsr spc_begin_upload
+   %spc_begin_upload()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
 
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sword shot sample location
@@ -146,15 +155,20 @@ init_swordshot:
 
 init_linkhurt:
    ldy #$0204    ; directory entry for this sample
-   jsr spc_begin_upload
+   ; jsr spc_begin_upload
+   %spc_begin_upload()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
@@ -165,15 +179,20 @@ init_linkhurt:
 
 init_boss1:
    ldy #$0208    ; directory entry for this sample
-   jsr spc_begin_upload
+   ; jsr spc_begin_upload
+   %spc_begin_upload()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
@@ -184,15 +203,20 @@ init_boss1:
 
 init_boss2:
    ldy #$020c    ; directory entry for this sample
-   jsr spc_begin_upload
+   ; jsr spc_begin_upload
+   %spc_begin_upload()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
@@ -203,15 +227,20 @@ init_boss2:
 
 init_doorunlock:
    ldy #$0210    ; directory entry for this sample
-   jsr spc_begin_upload
+   ; jsr spc_begin_upload
+   %spc_begin_upload()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    lda !brr_new_sample_pointer+1
-   jsr spc_upload_byte
+   ; jsr spc_upload_byte
+   %spc_upload_byte()
    
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
@@ -221,7 +250,8 @@ init_doorunlock:
 menuDingLoad:
     ; Upload menu navigation ding
    ldy #$0214
-   jsr spc_begin_upload
+   ; jsr spc_begin_upload
+   %spc_begin_upload()
    lda !brr_new_sample_pointer
    jsr spc_upload_byte
    lda !brr_new_sample_pointer+1
@@ -614,6 +644,9 @@ nmi:
 return_int:
    rti
 
+hardLockTrap:
+   bra hardLockTrap
+
 ;----------------------------------------------------------------------------
 ; ClearVRAM -- Sets every byte of VRAM to zero
 ; from bazz's VRAM tutorial
@@ -656,6 +689,39 @@ incsrc "sound/dsp-write.asm"
 
 charset_asm_here:
 incsrc "charset_test.asm"
+
+;  Lookup tables to avoid scaled sample conversion
+;  floor(-8 + (V - SV)>>(S-8)) calculation
+org $009df0
+
+shift8Table:  ; covers input $38->$47
+db $08,$09,$0a,$0b,$0c,$0d,$0e,$0f,$00,$01,$02,$03,$04,$05,$06,$07
+
+shift9Table:  ; covers input $30->$4f
+db $08,$08,$09,$09,$0a,$0a,$0b,$0b,$0c,$0c,$0d,$0d,$0e,$0e,$0f,$0f
+db $00,$00,$01,$01,$02,$02,$03,$03,$04,$04,$05,$05,$06,$06,$07,$07
+
+shiftATable:  ; covers input $20->$5f
+db $08,$08,$08,$08,$09,$09,$09,$09,$0a,$0a,$0a,$0a,$0b,$0b,$0b,$0b
+db $0c,$0c,$0c,$0c,$0d,$0d,$0d,$0d,$0e,$0e,$0e,$0e,$0f,$0f,$0f,$0f
+db $00,$00,$00,$00,$01,$01,$01,$01,$02,$02,$02,$02,$03,$03,$03,$03
+db $04,$04,$04,$04,$05,$05,$05,$05,$06,$06,$06,$06,$07,$07,$07,$07
+
+shiftBTable:  ; covers input $00->$7f
+db $08,$08,$08,$08,$08,$08,$08,$08,$09,$09,$09,$09,$09,$09,$09,$09
+db $0a,$0a,$0a,$0a,$0a,$0a,$0a,$0a,$0b,$0b,$0b,$0b,$0b,$0b,$0b,$0b
+db $0c,$0c,$0c,$0c,$0c,$0c,$0c,$0c,$0d,$0d,$0d,$0d,$0d,$0d,$0d,$0d
+db $0e,$0e,$0e,$0e,$0e,$0e,$0e,$0e,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f
+db $00,$00,$00,$00,$00,$00,$00,$00,$01,$01,$01,$01,$01,$01,$01,$01
+db $02,$02,$02,$02,$02,$02,$02,$02,$03,$03,$03,$03,$03,$03,$03,$03
+db $04,$04,$04,$04,$04,$04,$04,$04,$05,$05,$05,$05,$05,$05,$05,$05
+db $06,$06,$06,$06,$06,$06,$06,$06,$07,$07,$07,$07,$07,$07,$07,$07
+
+shiftJumpTable:
+dw $0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+dw shift8Table-$38,shift9Table-$30,shiftATable-$20,shiftBTable
+dw $0000,$0000,$0000,$0000
+
 
 ;  Lookup tables linking brr voices to desired pitches
 ;  Dummy entries at [0] to accommodate %playsound() macro

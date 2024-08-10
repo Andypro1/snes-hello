@@ -1,3 +1,6 @@
+if not(defined("macros"))
+    !macros = 1
+
 macro playsound(voice, pitchhigh, pitchlow)
     !playbit #= <voice>+1
     !konvoice := #$0!playbit
@@ -10,6 +13,7 @@ macro playsound(voice, pitchhigh, pitchlow)
     ldx !konvoice
     jsr write_dsp
 endmacro
+
 
 macro playsoundinvoiceA(pitchhigh, pitchlow)
     ; !playbit #= <voice>+1
@@ -109,6 +113,7 @@ flagsDone:
     jsr write_dsp
 endmacro
 
+
 macro copyRomToRam(romSourcePage, ramDestPage, length)
    ;  See https://en.wikibooks.org/wiki/Super_NES_Programming/SNES_memory_map#LoROM
    ;  when deciding where to load into ram (or whether it's even worth it)
@@ -124,3 +129,64 @@ macro copyRomToRam(romSourcePage, ramDestPage, length)
    rep #$10        ; X/Y 16-bit
    sep #$20        ; A 8-bit
 endmacro
+
+
+macro copyEarlyRomToRam(romSourcePage, ramDestPage, length)
+   PHB                ; Preserve data bank
+   REP #$30           ; 16-bit AXY
+   LDA #<length>; #$0b00 ;#$081f ;#$00a0;  #$0400 ;#$00a0 ;#$0750         ; \
+   LDX #<romSourcePage>; #$8800; #$8740; #$a000 ;#$8740 ;#$8000  ;#$9300     ;  |  subtract $4000 from nes locations
+   LDY #<ramDestPage>         ;  | Move [A] bytes of data from $1f8000 to $000400
+   MVN $00, $00       ; /
+   SEP #$30           ; 8-bit AXY
+   PLB                ; Recover data bank
+
+   rep #$10        ; X/Y 16-bit
+   sep #$20        ; A 8-bit
+endmacro
+
+
+; Starts upload to SPC addr Y and sets Y to
+; 0 for use as index with spc_upload_byte.
+; Preserved: X
+macro spc_begin_upload()
+    sty $2142
+
+    ; Send command
+    lda $2140
+    clc
+    adc #$22
+    bne ?skip       ; special case fully verified
+    inc
+?skip:
+    sta $2141
+    sta $2140
+
+    ; Wait for acknowledgement
+?waitUploadStartAck:
+    cmp $2140
+    bne ?waitUploadStartAck
+
+    ; Initialize index
+    ldy #$0000
+endmacro
+
+
+; Uploads byte A to SPC and increments Y. The low byte
+; of Y must not changed between calls.
+; Preserved: X
+macro spc_upload_byte()
+    sta $2141
+
+    ; Signal that it's ready
+    tya
+    sta $2140
+    iny
+
+    ; Wait for acknowledgement
+?waitUploadByteAck:
+    cmp $2140
+    bne ?waitUploadByteAck
+endmacro
+
+endif
