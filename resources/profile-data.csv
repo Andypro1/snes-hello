@@ -1,3 +1,5 @@
+8.0s samples load (not profiled)
+
 6.9s samples load:
 
 Function (Entry Address)        ,Call Count ,Inclusive Time (Cycles) ,Inclusive Time (%) ,Exclusive Time (Cycles) ,Exclusive Time (%) ,Avg. Cycles ,Min. Cycles ,Max. Cycles
