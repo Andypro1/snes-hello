@@ -30,6 +30,20 @@ incsrc "sound/dsp-send.asm"
 !Y_BUTTON        = $4000
 
 start:
+zeroPageAllocation:
+   !dmc_change_after_16 = $00
+   stz !dmc_change_after_16
+   !brr_half_sample = $01
+   stz !brr_half_sample
+   stz !brr_half_sample+1
+   !dmc_working_b1b2 = $03
+   stz !dmc_working_b1b2
+   stz !dmc_working_b1b2+1
+   !brr_loop_counter = $05
+   stz !brr_loop_counter
+   stz !brr_loop_counter+1
+
+
 memoryAllocation:
    ;----- Memory Map WRAM
    ;TODO: make a memory map wram init to 0 loop
@@ -714,11 +728,71 @@ db $00,$01,$01,$02,$01,$02,$02,$03,$01,$02,$02,$03,$02,$03,$03,$04,
    $03,$04,$04,$05,$04,$05,$05,$06,$04,$05,$05,$06,$05,$06,$06,$07,
    $04,$05,$05,$06,$05,$06,$06,$07,$05,$06,$06,$07,$06,$07,$07,$08
 
+;  Table stores precomputed sample values for an incoming 7-bit value $00-$7f.
+;  First half of table assumes a descending sample ("from above"),
+;  second half assumes an ascending sample ("from below"), indicated by the 8th bit (msb) being set
+dmcBRR_F0S8_and_F1S7_coeffLookup:
+   ;  Low table (descending sample):
+db $08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,
+   $08,$08,$08,$08,$09,$09,$09,$09,$09,$09,$09,$09,$0a,$0a,$0a,$0a,
+   $0a,$0a,$0a,$0a,$0b,$0b,$0b,$0b,$0b,$0b,$0b,$0b,$0c,$0c,$0c,$0c,
+   ;  Next 8 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,
+   $08,$09,$0a,$0b,$0c,$0d,$0e,$0f,$00,$01,$02,$03,$04,$05,$06,$07,
+   ;  Next 8 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,
+   $00,$00,$00,$00,$01,$01,$01,$01,$01,$01,$01,$01,$02,$02,$02,$02,
+   $02,$02,$02,$02,$03,$03,$03,$03,$03,$03,$03,$03,$04,$04,$04,$04,
+   $04,$04,$04,$04,$05,$05,
+   ;  Next 10 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,
+
+   ;  High table (ascending sample):
+   $08,$0a,$0a,$0a,$0a,$0a,$0b,$0b,$0b,$0b,$0b,$0b,$0b,$0b,$0c,$0c,
+   $0c,$0c,$0c,$0c,$0c,$0c,$0d,$0d,$0d,$0d,$0d,$0d,$0d,$0d,$0e,$0e,
+   $0e,$0e,$0e,$0e,$0e,$0e,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$00,$00,
+   ;  Next 8 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,
+   $08,$09,$0a,$0b,$0c,$0d,$0e,$0f,$00,$01,$02,$03,$04,$05,$06,$07,
+   ;  Next 8 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,
+   $04,$04,$04,$04,$04,$04,$05,$05,$05,$05,$05,$05,$05,$05,$06,$06,
+   $06,$06,$06,$06,$06,$06,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,
+   $07,$07,$07,$07,$07,$07,
+   ;  Next 10 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+
+dmcBRR_F1S6_and_F1S8_coeffLookup:
+   ;  Low table (descending sample):
+db $0b,$0b,$0b,$0b,$0b,$0b,$0b,$0b,$0c,$0c,$0c,$0c,$0c,$0c,$0c,$0c,
+   ;  Next 16 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,
+   $08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,
+   $08,$08,$09,$09,$09,$09,$0a,$0a,$0a,$0a,$0b,$0b,$0b,$0b,$0c,$0c,
+   $0c,$0c,$0d,$0d,$0d,$0d,$0e,$0e,$0e,$0e,$0f,$0f,$0f,$0f,$00,$00,
+   $00,$00,$01,$01,$01,$01,$02,$02,$02,$02,$03,$03,$03,$03,$04,$04,
+   ;  Next 6 bytes unused:
+   $00,$00,$00,$00,$00,$00,$01,$01,$02,$02,$02,$02,$02,$02,$02,$02,
+   $02,$02,$02,$02,$02,$02,$02,$02,$03,$03,$03,$03,$03,$03,$03,$04,
+
+   ;  High table (ascending sample):
+   $0c,$0d,$0d,$0d,$0d,$0d,$0d,$0d,$0d,$0d,$0e,$0e,$0e,$0e,$0e,$0e,
+   ;  Next 16 bytes unused:
+   $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,
+   $0c,$0c,$0c,$0c,$0d,$0d,$0d,$0d,$0e,$0e,$0e,$0e,$0f,$0f,$0f,$0f,
+   $00,$00,$00,$00,$01,$01,$01,$01,$02,$02,$02,$02,$03,$03,$03,$03,
+   $04,$04,$04,$04,$05,$05,$05,$05,$06,$06,$06,$06,$07,$07,$07,$07,
+   $07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,
+   ;  Next 6 bytes unused:
+   $00,$00,$00,$00,$00,$00,
+   $03,$03,$03,$03,$04,$04,$04,$04,$04,$04,$04,$04,$04,$04,$04,$04,
+   $04,$04,$04,$04,$05,$05,$05,$05,$05,$05
+
 dmcRelativeChangeTable:
 db $F0,$F2,$F4,$F6,$F8,$FA,$FC,$FE,$00,$02,$04,$06,$08,$0A,$0C,$0E,
    $10,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
 
-;  Lookup table ranges (the table should output the relevant brr header byte):
+;  Lookup table ranges (the table outputs the relevant brr header byte):
 ;   $38->$47
 ;       filter 0; shift 8
 ;   $28->$57
@@ -738,39 +812,6 @@ db $84,$84,$84,$84,$84,$84,$84,$84,
    $74,$74,$74,$74,$74,$74,
    $84,$84,$84,$84,$84,$84,$84,$84,$84,$84,$84,$84,$84,$84,$84,$84,
    $84,$84
-
-;  Table stores precomputed sample values for an incoming 7-bit value $00-$7f.
-;  First half of table assumes a descending sample ("from above"),
-;  second half assumes an ascending sample ("from below"), indicated by the 8th bit (msb) being set
-dmcBRR_F0S8_and_F1S7_coeffLookup:
-   ; shift-8
-db $0b,$0b,$0b,$0b,$0b,$0b,$0b,$0b,
-   ; shift-7
-   $08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08,$08, 
-   $09,$09,$09,$09,$09,$09,$09,
-   $0a,$0a,$0a,$0a,$0a,$0a,$0a,$0a,$0a,
-   $0b,$0b,$0b,$0b,
-   ; shift-6
-   $08,$08,$08,$08,$08,$08,$08,$08,$08,$08,
-   $09,$09,$09,$09,
-   $0a,$0a,
-   ; filter-0 shift-8
-   $08,$09,$0a,$0b,$0c,$0d,$0e,$0f,$00,$01,$02,$03,$04,$05,$06,$07, 
-   ; shift-6
-   $0e,$0e,$0f,$0f,$0f,$0f,$00,$00,$00,$00,$01,$01,$01,$01,$02,$02,  
-   ; shift-7
-   $01,$01,$01,$01, 
-   $02,$02,$02,$02,$02,$02,$02,$02,
-   $03,$03,$03,$03,$03,$03,$03,$03,
-   $04,$04,
-   ; shift-8
-   $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,  
-   $03,$03,$03,$03,$03,$03,$03,
-   $04  ;  End "from above" section
-   ;  Start "from below" section
-
-dmcBRR_F1S6_and_F1S8_coeffLookup:
-
 
 ;l48
 ;   $00->$7f
