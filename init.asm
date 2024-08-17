@@ -124,7 +124,7 @@ snesboot:
    sep #$20        ; A 8-bit
 
 jumpTablesInit:
-   %copyEarlyRomToRam(shiftJumpTable, $0000, $0020)  ;  Load shiftJumpTable to 0-page
+   ; %copyEarlyRomToRam(shiftJumpTable, $0000, $0020)  ;  Load shiftJumpTable to 0-page
 
    ; Clear registers
    ldx.w #$33
@@ -191,7 +191,8 @@ init_linkhurt:
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
    ldy #$00a0      ; sample length
-   jsr ConvertDMCtoBRR
+   ; jsr ConvertDMCtoBRR
+   jsr ConvertDMCtoBRR_F1
 
 %copyRomToRam($8800, $0400, $0b00)  ;  Load $c800 boss 1 dmc
 
@@ -215,7 +216,8 @@ init_boss1:
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
    ldy #$0b00      ; sample length
-   jsr ConvertDMCtoBRR
+   ; jsr ConvertDMCtoBRR
+   jsr ConvertDMCtoBRR_F1
 
 %copyRomToRam($9300, $0400, $0d00)  ;  Load $d300 boss 2 dmc
 
@@ -239,7 +241,8 @@ init_boss2:
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
    ldy #$0d00      ; sample length
-   jsr ConvertDMCtoBRR
+   ; jsr ConvertDMCtoBRR
+   jsr ConvertDMCtoBRR_F1
 
 %copyRomToRam($a000, $0400, $0400)  ;  Load $e000 door unlock dmc
 
@@ -263,7 +266,8 @@ init_doorunlock:
    ldy !brr_new_sample_pointer : phy  ; audio ram write location
    ldx #$0400    ; sample location
    ldy #$0400      ; sample length
-   jsr ConvertDMCtoBRR
+   ; jsr ConvertDMCtoBRR
+   jsr ConvertDMCtoBRR_F1
 
 menuDingLoad:
     ; Upload menu navigation ding
@@ -709,7 +713,7 @@ charset_asm_here:
 incsrc "charset_test.asm"
 
 ;  Lookup tables for convert-dmc-to-brr-f1
-org $0090f0
+org $009900
 count1sTable:
 db $00,$01,$01,$02,$01,$02,$02,$03,$01,$02,$02,$03,$02,$03,$03,$04,
    $01,$02,$02,$03,$02,$03,$03,$04,$02,$03,$03,$04,$03,$04,$04,$05,
@@ -806,7 +810,9 @@ db $84,$84,$84,$84,$84,$84,$84,$84,
    $74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,
    $74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,
    $64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,
-   $80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,
+   ; $80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,
+   ;  Replacing the $80 shift entries with $00 for nicer comparison in the subroutine
+   $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,
    $64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,$64,
    $74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,$74,
    $74,$74,$74,$74,$74,$74,

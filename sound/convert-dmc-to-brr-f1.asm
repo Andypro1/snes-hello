@@ -137,27 +137,53 @@ convertOuterLoop:
 ;       filter 1; shift 8
 ;
 ;  (any-bit) Pick the greater of [S1] and [S2] = [S]
-    cmp $00,s
+    cmp $01,s
     bcs writeBRRHeaderByte     ;  If [S1] >= [S2]
 
 ;   (8-bit) Write header byte to spc
     pla     ;  Choose [S2] and return it to [A]
+
+    ;  Alter $00 -> $80 for nicer math above
+    cmp #$00
+    bne writeHeader1
+    lda #$80
+
+writeHeader1:
     sta !brr_cur_shift  ; [todo: opt out]
+
+    ldy.w !dmc_sample_length    ;  TODO: make macro
+    cpy #$0003
+    bcs skipEndFlag1    ;  If 3 or more bytes left, no BRR end flag
+    inc     ; add end flag
+
+skipEndFlag1:
     ldy.w !brr_new_sample_pointer
     %spc_upload_byte()
     sty.w !brr_new_sample_pointer
     bra afterHeaderWritten
 
 writeBRRHeaderByte:
+    ;  Alter $00 -> $80 for nicer math above
+    cmp #$00
+    bne writeHeader2
+    lda #$80
+
+writeHeader2:
     sta !brr_cur_shift  ; [todo: opt out]
+
+    ldy.w !dmc_sample_length    ;  TODO: make macro
+    cpy #$0003
+    bcs skipEndFlag2    ;  If 3 or more bytes left, no BRR end flag
+    inc     ; add end flag
+
+skipEndFlag2:
+
     ldy.w !brr_new_sample_pointer
     %spc_upload_byte()
     sty.w !brr_new_sample_pointer
     pla     ;  Discard unused stack value
 
 afterHeaderWritten:
-
-
 ;  need for loop:  running sample [i] (7 bits), prior sample direction (1 bit), [Y]
 ;                  current shift table index (16-bit),  [X]
 ;                  current shift type (separate loop code for each shift type)
@@ -174,21 +200,32 @@ afterHeaderWritten:
 
     ;  Choose from among four loops based on current shift type
     ldx !brr_cur_shift
-    cpx #$0080    ;  Filter 0, Shift 8 table with a table offset of $38
-    beq F0S8_BlockCreation
+    cpx #$0080    ;  Filter 0, Shift 8
+    bne nextCompare1
+    brl F0S8_BlockCreation
+nextCompare1:
     cpx #$0064
-    ; TODO:  subroutines?
-    ; beq F1S6_BlockCreation
-    ; cpx #$0074
-    ; beq F1S7_BlockCreation
+    ; TODO:  subroutine(s) to avoid brls?
+    bne nextCompare2
+    brl F1S6_BlockCreation
+nextCompare2:
+    cpx #$0074
+    bne F1S8_BlockCreation
+    brl F1S7_BlockCreation
 
-;  Inner loops TODO:s
-;   - Add a way to break out of the loops after 16 iterations (dec a zero-page counter and then beq ?)
-
+;  TODO:  See if any of these inner loop sections are shift agnostic and can be de-duped.
+;;  Filter-1, Shift-8 inner loop  ;;
+;----------------------------------;
 F1S8_BlockCreation:
+    tay
     ;  Prep sample index in [X]
-    ldx #dmcBRR_F1S6_and_F1S8_coeffLookup   ;  offset $00 - no change needed
+    lda #dmcBRR_F1S6_and_F1S8_coeffLookup
+    clc
+    adc !dmc_running_value
+    tax
+    tya
 
+F1S8_NextSamples:
     asl
     bcs F1S8_LoadFromBelow
 
@@ -199,7 +236,18 @@ F1S8_LoadFromAbove:
     tax
     dex     ;  Move to the new working value (previous-1)
     tya     ;  Restore !dmc_working_value_16 to [A]
-    bra F1S8_BlockCreation  ;  Next sample
+
+    ldy $00,x   ; indexed table load
+    sty !brr_half_sample    ;  Save first half of sample byte
+    asl !brr_half_sample    ;  Bump the data up to the high nibble
+    asl !brr_half_sample
+    asl !brr_half_sample
+    asl !brr_half_sample    ;  (opt: obviously, this is bad)
+
+    ;  Second brr sample unrolled
+    asl
+    bcs F1S8_LoadFromBelow2
+    bra F1S8_LoadFromAbove2  ;  Next sample
 
 F1S8_LoadFromBelow:
     tay
@@ -207,10 +255,80 @@ F1S8_LoadFromBelow:
     ora #$0080  ;  Point to high half of sample index table
     tax
     inx     ;  Move to the new working value (previous+1)
-    tya     ;  Restore !dmc_working_value_16 to [A]
-    bra F1S8_BlockCreation  ;  Next sample
+    tya     ;  Restore working [B1][B2]
+
+    ldy $00,x   ; indexed table load
+    sty !brr_half_sample    ;  Save first half of sample byte
+    asl !brr_half_sample    ;  Bump the data up to the high nibble
+    asl !brr_half_sample
+    asl !brr_half_sample
+    asl !brr_half_sample    ;  (opt: obviously, this is bad)
+
+    ;  Second brr sample unrolled
+    asl
+    bcs F1S8_LoadFromBelow2
+
+F1S8_LoadFromAbove2:
+    tay
+    txa
+    and #$ff7f  ;  Point to low half of sample index table
+    tax
+    dex     ;  Move to the new working value (previous-1)
+
+    lda $00,x   ; indexed table load
+
+    sep #$20
+    clc             ; (opt: check for consistent carry flag)
+    adc !brr_half_sample    ;  Restore first half of sample byte
+
+    sty !dmc_working_b1b2
+    
+    ;  Send 2 samples
+    ldy.w !brr_new_sample_pointer
+    %spc_upload_byte()
+    sty.w !brr_new_sample_pointer
+
+    dec !brr_loop_counter
+    bne F1S8a_notFinished
+    jml afterInnerLoops
+    
+F1S8a_notFinished:
+    rep #$20
+    lda !dmc_working_b1b2
+    bra F1S8_NextSamples  ;  Next sample
+
+F1S8_LoadFromBelow2:
+    tay
+    txa
+    ora #$0080  ;  Point to high half of sample index table
+    tax
+    inx     ;  Move to the new working value (previous+1)
+
+    lda $00,x   ; indexed table load
+
+    sep #$20
+    clc             ; (opt: check for consistent carry flag)
+    adc !brr_half_sample    ;  Restore first half of sample byte
+
+    sty !dmc_working_b1b2
+
+    ;  Send 2 samples
+    ldy.w !brr_new_sample_pointer
+    %spc_upload_byte()
+    sty.w !brr_new_sample_pointer
+
+    dec !brr_loop_counter
+    bne F1S8b_notFinished
+    jml afterInnerLoops
+
+F1S8b_notFinished:
+    rep #$20
+    lda !dmc_working_b1b2
+    brl F1S8_NextSamples  ;  Next sample
 
 
+;;  Filter-0, Shift-8 inner loop  ;;
+;----------------------------------;
 F0S8_BlockCreation:
     tay
     ;  Prep sample index in [X]
@@ -234,6 +352,12 @@ F0S8_LoadFromAbove:
     tya     ;  Restore !dmc_working_value_16 to [A]
 
     ldy $00,x   ; indexed table load
+    ;  TODO: If $00 detected here, we have broken the hard floor/ceiling of F0S8.
+    ;  Call a subroutine that resets all relevant indexes and pointers, sets the current
+    ;  block shift to F1S6, and start again from convertOuterLoop.
+    bne F0S8_continueInBounds
+    jml F0S8_resetOutOfBounds
+F0S8_continueInBounds:
     sty !brr_half_sample    ;  Save first half of sample byte
     asl !brr_half_sample    ;  Bump the data up to the high nibble
     asl !brr_half_sample
@@ -254,6 +378,10 @@ F0S8_LoadFromBelow:
     tya     ;  Restore working [B1][B2]
 
     ldy $00,x   ; indexed table load
+    ;  TODO: If $00 detected here, we have broken the hard floor/ceiling of F0S8.
+    ;  Call a subroutine that resets all relevant indexes and pointers, sets the current
+    ;  block shift to F1S6, and start again from convertOuterLoop.
+    beq F0S8_resetOutOfBounds
     sty !brr_half_sample    ;  Save first half of sample byte
     asl !brr_half_sample    ;  Bump the data up to the high nibble
     asl !brr_half_sample
@@ -271,8 +399,14 @@ F0S8_LoadFromAbove2:
     tax
     dex     ;  Move to the new working value (previous-1)
 
-    sep #$20
     lda $00,x   ; indexed table load
+    
+    ;  Capture the two OOB states
+    beq F0S8_resetOutOfBounds
+    cmp #$0008
+    beq F0S8_resetOutOfBounds
+
+    sep #$20
     clc             ; (opt: check for consistent carry flag)
     adc !brr_half_sample    ;  Restore first half of sample byte
 
@@ -300,8 +434,14 @@ F0S8_LoadFromBelow2:
     tax
     inx     ;  Move to the new working value (previous+1)
 
-    sep #$20
     lda $00,x   ; indexed table load
+
+    ;  Capture the two OOB states
+    beq F0S8_resetOutOfBounds
+    cmp #$0008
+    beq F0S8_resetOutOfBounds
+
+    sep #$20
     clc             ; (opt: check for consistent carry flag)
     adc !brr_half_sample    ;  Restore first half of sample byte
 
@@ -322,15 +462,23 @@ F0S8b_notFinished:
     lda !dmc_working_b1b2
     brl F0S8_NextSamples  ;  Next sample
 
+F0S8_resetOutOfBounds:
+    jsr resetOutOfBounds
+    brl afterHeaderWritten
 
+
+;;  Filter-1, Shift-6 inner loop  ;;
+;----------------------------------;
 F1S6_BlockCreation:
     tay
     ;  Prep sample index in [X]
     lda #dmcBRR_F1S6_and_F1S8_coeffLookup
-    adc #$0020  ;  Add offset $20 for the correct table block
+    clc
+    adc !dmc_running_value
     tax
-
     tya
+
+F1S6_NextSamples:
     asl
     bcs F1S6_LoadFromBelow
 
@@ -341,7 +489,18 @@ F1S6_LoadFromAbove:
     tax
     dex     ;  Move to the new working value (previous-1)
     tya     ;  Restore !dmc_working_value_16 to [A]
-    bra F1S6_BlockCreation  ;  Next sample
+
+    ldy $00,x   ; indexed table load
+    sty !brr_half_sample    ;  Save first half of sample byte
+    asl !brr_half_sample    ;  Bump the data up to the high nibble
+    asl !brr_half_sample
+    asl !brr_half_sample
+    asl !brr_half_sample    ;  (opt: obviously, this is bad)
+
+    ;  Second brr sample unrolled
+    asl
+    bcs F1S6_LoadFromBelow2
+    bra F1S6_LoadFromAbove2  ;  Next sample
 
 F1S6_LoadFromBelow:
     tay
@@ -349,14 +508,90 @@ F1S6_LoadFromBelow:
     ora #$0080  ;  Point to high half of sample index table
     tax
     inx     ;  Move to the new working value (previous+1)
-    tya     ;  Restore !dmc_working_value_16 to [A]
-    bra F1S6_BlockCreation  ;  Next sample
+    tya     ;  Restore working [B1][B2]
+
+    ldy $00,x   ; indexed table load
+    sty !brr_half_sample    ;  Save first half of sample byte
+    asl !brr_half_sample    ;  Bump the data up to the high nibble
+    asl !brr_half_sample
+    asl !brr_half_sample
+    asl !brr_half_sample    ;  (opt: obviously, this is bad)
+
+    ;  Second brr sample unrolled
+    asl
+    bcs F1S6_LoadFromBelow2
+
+F1S6_LoadFromAbove2:
+    tay
+    txa
+    and #$ff7f  ;  Point to low half of sample index table
+    tax
+    dex     ;  Move to the new working value (previous-1)
+
+    lda $00,x   ; indexed table load
+
+    sep #$20
+    clc             ; (opt: check for consistent carry flag)
+    adc !brr_half_sample    ;  Restore first half of sample byte
+
+    sty !dmc_working_b1b2
+    
+    ;  Send 2 samples
+    ldy.w !brr_new_sample_pointer
+    %spc_upload_byte()
+    sty.w !brr_new_sample_pointer
+
+    dec !brr_loop_counter
+    bne F1S6a_notFinished
+    jml afterInnerLoops
+    
+F1S6a_notFinished:
+    rep #$20
+    lda !dmc_working_b1b2
+    bra F1S6_NextSamples  ;  Next sample
+
+F1S6_LoadFromBelow2:
+    tay
+    txa
+    ora #$0080  ;  Point to high half of sample index table
+    tax
+    inx     ;  Move to the new working value (previous+1)
+
+    lda $00,x   ; indexed table load
+
+    sep #$20
+    clc             ; (opt: check for consistent carry flag)
+    adc !brr_half_sample    ;  Restore first half of sample byte
+
+    sty !dmc_working_b1b2
+
+    ;  Send 2 samples
+    ldy.w !brr_new_sample_pointer
+    %spc_upload_byte()
+    sty.w !brr_new_sample_pointer
+
+    dec !brr_loop_counter
+    bne F1S6b_notFinished
+    jml afterInnerLoops
+
+F1S6b_notFinished:
+    rep #$20
+    lda !dmc_working_b1b2
+    brl F1S6_NextSamples  ;  Next sample
 
 
+;;  Filter-1, Shift-7 inner loop  ;;
+;----------------------------------;
 F1S7_BlockCreation:
+    tay
     ;  Prep sample index in [X]
-    ldx #dmcBRR_F0S8_and_F1S7_coeffLookup   ;  offset $00 - no change needed
+    lda #dmcBRR_F0S8_and_F1S7_coeffLookup
+    clc
+    adc !dmc_running_value
+    tax
+    tya
 
+F1S7_NextSamples:
     asl
     bcs F1S7_LoadFromBelow
 
@@ -367,7 +602,18 @@ F1S7_LoadFromAbove:
     tax
     dex     ;  Move to the new working value (previous-1)
     tya     ;  Restore !dmc_working_value_16 to [A]
-    bra F1S7_BlockCreation  ;  Next sample
+
+    ldy $00,x   ; indexed table load
+    sty !brr_half_sample    ;  Save first half of sample byte
+    asl !brr_half_sample    ;  Bump the data up to the high nibble
+    asl !brr_half_sample
+    asl !brr_half_sample
+    asl !brr_half_sample    ;  (opt: obviously, this is bad)
+
+    ;  Second brr sample unrolled
+    asl
+    bcs F1S7_LoadFromBelow2
+    bra F1S7_LoadFromAbove2  ;  Next sample
 
 F1S7_LoadFromBelow:
     tay
@@ -375,11 +621,85 @@ F1S7_LoadFromBelow:
     ora #$0080  ;  Point to high half of sample index table
     tax
     inx     ;  Move to the new working value (previous+1)
-    tya     ;  Restore !dmc_working_value_16 to [A]
-    bra F1S7_BlockCreation  ;  Next sample
+    tya     ;  Restore working [B1][B2]
+
+    ldy $00,x   ; indexed table load
+    sty !brr_half_sample    ;  Save first half of sample byte
+    asl !brr_half_sample    ;  Bump the data up to the high nibble
+    asl !brr_half_sample
+    asl !brr_half_sample
+    asl !brr_half_sample    ;  (opt: obviously, this is bad)
+
+    ;  Second brr sample unrolled
+    asl
+    bcs F1S7_LoadFromBelow2
+
+F1S7_LoadFromAbove2:
+    tay
+    txa
+    and #$ff7f  ;  Point to low half of sample index table
+    tax
+    dex     ;  Move to the new working value (previous-1)
+
+    lda $00,x   ; indexed table load
+
+    sep #$20
+    clc             ; (opt: check for consistent carry flag)
+    adc !brr_half_sample    ;  Restore first half of sample byte
+
+    sty !dmc_working_b1b2
+    
+    ;  Send 2 samples
+    ldy.w !brr_new_sample_pointer
+    %spc_upload_byte()
+    sty.w !brr_new_sample_pointer
+
+    dec !brr_loop_counter
+    bne F1S7a_notFinished
+    jml afterInnerLoops
+    
+F1S7a_notFinished:
+    rep #$20
+    lda !dmc_working_b1b2
+    bra F1S7_NextSamples  ;  Next sample
+
+F1S7_LoadFromBelow2:
+    tay
+    txa
+    ora #$0080  ;  Point to high half of sample index table
+    tax
+    inx     ;  Move to the new working value (previous+1)
+
+    lda $00,x   ; indexed table load
+
+    sep #$20
+    clc             ; (opt: check for consistent carry flag)
+    adc !brr_half_sample    ;  Restore first half of sample byte
+
+    sty !dmc_working_b1b2
+
+    ;  Send 2 samples
+    ldy.w !brr_new_sample_pointer
+    %spc_upload_byte()
+    sty.w !brr_new_sample_pointer
+
+    dec !brr_loop_counter
+    bne F1S7b_notFinished
+    jml afterInnerLoops
+
+F1S7b_notFinished:
+    rep #$20
+    lda !dmc_working_b1b2
+    brl F1S7_NextSamples  ;  Next sample
 
 
 afterInnerLoops:
+    ;  End check
+    rep #$20        ; 16-bit    (opt: needed?)
+    dec !dmc_sample_length
+    dec !dmc_sample_length
+    beq EndConvertDMCtoBRRF1  ;  done with this sample; exit subroutine
+
     sep #$20    ;  Prep for 8-bit math
     lda #$08
     sta !brr_loop_counter   ;  Reset the inner loop counter
@@ -394,15 +714,65 @@ afterInnerLoops:
     inx : inx   ;  Move to next 16 samples
     stx !dmc_working_value_16
     lda $00,x   ;  And load them
+    tay         ;  Copy to [Y] for next loop
     brl convertOuterLoop
 
 nooop:
     jmp nooop
 
+EndConvertDMCtoBRRF1:
+;  Set !brr_new_sample_pointer to the next valid brr audio ram start location
+    lda.w !brr_start_location 
+    clc
+    adc !brr_new_sample_pointer
+    sta !brr_new_sample_pointer
+    sep #$20        ; 8-bit
 rts
 
 
 
 ;  [OPT] ideas:
+;           - Break %spc_upload_byte() into two, and cram X cycles of actual work in the middle
+;             while waiting for spc-700 confirmation.  See if the actual # of cycles is documented.
 ;           - MVN some or all of the lookup tables into wram (will this reduce cycles?  doubtful)
 ;           - Skip every nth sample
+
+
+;-------------------------------------------------------------------------------
+;   Description: This short subroutine is a band-aid to catch the one
+;                edge case that the conversion algorithm can't handle:
+;                if the current brr block is filter 0 and we exceed the range,
+;                we have to rollback the pointers and rewrite this block from
+;                the start, now that we know the valid shift for this block
+;                must be $64.
+;   Parameters: none
+;   Variables:  
+;   Returns:    no value
+;-------------------------------------------------------------------------------
+resetOutOfBounds:
+    rep #$20    ; 16-bit math
+    lda !brr_new_sample_pointer     ;  Where in the BRR we were when we broke out of bounds
+    sec : sbc #$0009  ;  Loop counter max+1
+    clc : adc !brr_loop_counter  ;  Where we were when we broke out of bounds
+    clc : adc !brr_start_location  ;  Add the start offset to above to get the aram address
+    sta !brr_new_sample_pointer  ;  Sample pointer is now reset to the head of the current block
+    sta !brr_start_location      ;  This also has to be updated to the most recent reset for future calls
+    tay                          ;  Copy pointer to [Y]
+
+    sep #$20     ;  Prep for 8-bit math
+
+    ;  Re-init audio ram writes
+    %spc_begin_upload()
+    sty.w !brr_new_sample_pointer   ; (opt: just iny?)
+
+    lda #$08
+    sta !brr_loop_counter   ;  Reset the inner loop counter
+
+    lda #$64    ;  The correct shift value for this block
+    sta !brr_cur_shift
+
+    ;  Overwrite the incorrect $80 header with the correct $64 header
+    ldy.w !brr_new_sample_pointer
+    %spc_upload_byte()
+    sty.w !brr_new_sample_pointer
+rts
