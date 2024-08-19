@@ -107,16 +107,16 @@ nextDmcBit:
 
 add2:
     lda !dmc_running_value
-    cmp #$7f
-    beq scaleToOutputRange    ;  Skip addition if we are at the upper bound $7f
+    cmp #$7e
+    bcs scaleToOutputRange    ;  Skip sample change if current >= 126
     inc !dmc_running_value ;adc #$01
     inc !dmc_running_value
     ; sta !dmc_running_value
     bra scaleToOutputRange
 sub2:
     lda !dmc_running_value
-    cmp #$01
-    bcc scaleToOutputRange    ;  Skip subtraction if we are at/below the lower bound $00
+    cmp #$02
+    bcc scaleToOutputRange    ;  Skip sample change if current < 2 (does this handle negatives?)
     dec !dmc_running_value ;sbc #$01
     dec !dmc_running_value
     ; sta !dmc_running_value
