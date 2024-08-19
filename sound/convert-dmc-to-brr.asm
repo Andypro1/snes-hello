@@ -30,8 +30,8 @@
 ConvertDMCtoBRR:
     STY.w !dmc_sample_length  ;  Store the DMC sample length param [Y]
 
-    lda #$40        ;  DMC zero-crossing point (chosen in the middle of the 7-bit range)
-    sta !dmc_running_value
+;  DMC zero-crossing point (chosen in the middle of the 7-bit range)
+    ;  This is now done by the calling code (each z1 sample starts differently!)
 
 ;     start the brrFirstLast bit at 1 (first 8 samples)
     lda #$01
@@ -110,6 +110,7 @@ add2:
     cmp #$7f
     beq scaleToOutputRange    ;  Skip addition if we are at the upper bound $7f
     inc !dmc_running_value ;adc #$01
+    inc !dmc_running_value
     ; sta !dmc_running_value
     bra scaleToOutputRange
 sub2:
@@ -117,6 +118,7 @@ sub2:
     cmp #$01
     bcc scaleToOutputRange    ;  Skip subtraction if we are at/below the lower bound $00
     dec !dmc_running_value ;sbc #$01
+    dec !dmc_running_value
     ; sta !dmc_running_value
     bra scaleToOutputRange
 

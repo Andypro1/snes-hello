@@ -25,10 +25,10 @@ selLoop:
     asl
     bcs selectInc
 selectDec:
-    dex
+    dex : dex       ;  Change to delta of 2
     bra selectDone
 selectInc:
-    inx
+    inx : inx       ;  Change to delta of 2
 
 selectDone:
     cpx !sbs_minimum
