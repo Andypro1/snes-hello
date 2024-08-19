@@ -32,6 +32,17 @@
 ConvertDMCtoBRR_F1:
 ;  General strategy:
 
+;  TODO: DEBUGGING:
+;       dmc source checks/changes:
+;           - Each DM sample does increase or decrease by 2 instead of 1.
+;           - Implement correct $00->$7f bounds checks
+;           - Add "initial 0 block" which prints 15 0 samples followed by
+;               the initial dmc value sample in an F0 BRR block
+;           - use $c0 $00 $00 $00 $00 $00 $00 $00 $0c  for start value of $00 (-16,384, 0 error)
+;           - try using $b0 $00 $00 $00 $00 $00 $00 $00 $07  for start value of $7f (14,336, -1,792 error, ouch)
+;           * There may be a clever way to use a second non-f0 block to climb up to the desired values instead...
+;           - examine new waveform output after the changes above
+
     sty.w !dmc_sample_length  ;  Store the DMC sample length param in [Y]
 
 ;     set start write location in audio ram
@@ -53,8 +64,7 @@ ConvertDMCtoBRR_F1:
     rep #$20
 
 ;  Establish running value [R]
-    lda #$0040
-    sta !dmc_running_value
+    ;  This is now done by the calling code (each z1 sample starts differently!)
 
 ;  (16-bit?) Get 2 dmc bytes, [B1] and [B2]
     lda $00,x
